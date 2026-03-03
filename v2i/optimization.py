@@ -9,31 +9,32 @@ from v2i.generator import optimization_bounds
 from v2i.simulation import simulate
 
 
-PARAM_ORDER = ["green_extension_sec", "queue_jump_sec", "activation_window_sec"]
+ORDER = ["eta_threshold_sec", "green_extension_sec", "alpha_tram"]
 
 
-def _objective(vec: np.ndarray, data) -> float:
-    params = {k: float(v) for k, v in zip(PARAM_ORDER, vec)}
-    base_metrics = simulate(data, priority_enabled=False, priority_params=params)
-    prio_metrics = simulate(data, priority_enabled=True, priority_params=params)
+def _objective(vec: np.ndarray, data: Dict) -> float:
+    params = {
+        "eta_threshold_sec": float(vec[0]),
+        "green_extension_sec": float(vec[1]),
+        "max_extension_sec": 15.0,
+        "alpha_tram": float(vec[2]),
+        "beta_cars": float(1 - vec[2]),
+    }
+    baseline = simulate(data, priority_enabled=False, params=params)
+    priority = simulate(data, priority_enabled=True, params=params)
 
-    delay_gain = base_metrics["tram_avg_delay_sec"] - prio_metrics["tram_avg_delay_sec"]
-    throughput_drop = base_metrics["intersection_throughput_veh_per_h"] - prio_metrics["intersection_throughput_veh_per_h"]
+    tram_gain = baseline["tram_avg_delay_sec"] - priority["tram_avg_delay_sec"]
+    cars_penalty = priority["cars_delay_penalty_sec"] / 300.0
+    throughput_penalty = max(0.0, baseline["intersection_throughput_veh_per_h"] - priority["intersection_throughput_veh_per_h"]) / 90.0
 
-    penalty = max(0.0, throughput_drop) * 0.04
-    score = -(delay_gain - penalty)
-    return score
+    return -(params["alpha_tram"] * tram_gain - params["beta_cars"] * (cars_penalty + throughput_penalty))
 
 
-def optimize_priority_params(data) -> Dict[str, float]:
-    bounds_map = optimization_bounds()
-    bounds = [bounds_map[k] for k in PARAM_ORDER]
-
-    result = differential_evolution(
-        func=lambda x: _objective(x, data),
-        bounds=bounds,
-        seed=42,
-        maxiter=25,
-        polish=True,
-    )
-    return {k: float(v) for k, v in zip(PARAM_ORDER, result.x)}
+def optimize_priority_params(data: Dict) -> Dict[str, float]:
+    b = optimization_bounds()
+    bounds = [b[k] for k in ORDER]
+    res = differential_evolution(lambda x: _objective(x, data), bounds=bounds, seed=42, maxiter=30)
+    best = {k: float(v) for k, v in zip(ORDER, res.x)}
+    best["max_extension_sec"] = 15.0
+    best["beta_cars"] = float(1 - best["alpha_tram"])
+    return best

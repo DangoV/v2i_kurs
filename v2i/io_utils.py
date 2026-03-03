@@ -8,7 +8,7 @@ from typing import Dict
 import pandas as pd
 
 
-TABLES = ["intersections", "tram_schedule", "signal_delay_profile", "tram_path"]
+TABLES = ["intersections", "tram_schedule", "traffic", "signal_log", "v2i_log", "tram_position"]
 
 
 def save_all_formats(data: Dict[str, pd.DataFrame], out_dir: str | Path) -> None:
@@ -17,15 +17,17 @@ def save_all_formats(data: Dict[str, pd.DataFrame], out_dir: str | Path) -> None
 
     for name, df in data.items():
         df.to_csv(out_path / f"{name}.csv", index=False)
-        df.to_json(out_path / f"{name}.json", orient="records", force_ascii=False, indent=2)
+        df.to_json(out_path / f"{name}.json", orient="records", force_ascii=False)
 
     sqlite_path = out_path / "v2i_data.sqlite"
     with sqlite3.connect(sqlite_path) as conn:
         for name, df in data.items():
             df.to_sql(name, conn, if_exists="replace", index=False)
 
-    meta = {"tables": list(data.keys()), "sqlite": str(sqlite_path.name)}
-    (out_path / "metadata.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    (out_path / "metadata.json").write_text(
+        json.dumps({"tables": list(data), "sqlite": sqlite_path.name}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 def load_from_csv_dir(in_dir: str | Path) -> Dict[str, pd.DataFrame]:
